@@ -1,81 +1,55 @@
-name: Build RP2 Firmware (LVGL 8.3)
+name: Build RP2 (Pico) with LVGL 8.3
 
-# 触发条件：手动触发 + 推送到main分支时自动触发（可按需修改分支名）
 on:
-  workflow_dispatch:  # 手动触发（推荐，避免频繁自动编译）
+  workflow_dispatch:  # 手动触发
   push:
-    branches: [ main ]  # 仅当代码推送到main分支时自动编译
-    paths:  # 仅当以下关键路径修改时触发（减少无效编译）
-      - 'ports/rp2/**'       # RP2平台相关代码
-      - 'lib/lv_bindings/**' # LVGL绑定代码
-      - 'micropython/**'     # MicroPython核心代码
-      - '.github/workflows/rp2-lvgl83-build.yml' # 工作流文件本身
+    branches: [ main ]
+    paths:
+      - 'ports/rp2/**'
+      - 'lib/lv_bindings/**'
+      - 'micropython/**'
+      - '.github/workflows/rp2_lvgl83_build.yml'
 
 jobs:
-  build-rp2-lvgl83:
-    runs-on: ubuntu-latest  # 使用Ubuntu环境（编译效率高，工具链易安装）
+  build:
+    runs-on: ubuntu-latest
     steps:
-      # 步骤1：拉取lv_micropython代码（含子模块，LVGL源码在子模块中）
+      # 修复：确保子模块被正确拉取
       - name: Checkout lv_micropython (with submodules)
         uses: actions/checkout@v4
         with:
-          submodules: 'recursive'  # 递归拉取所有子模块（必须，否则缺失LVGL源码）
-          fetch-depth: 0           # 拉取完整历史（避免子模块版本冲突）
+          submodules: 'recursive'  # 必须：递归拉取子模块（包括LVGL）
+          fetch-depth: 0
 
-      # 步骤2：安装RP2编译依赖（ARM-GCC工具链、CMake、Python依赖等）
-      - name: Install RP2 build dependencies
+      - name: Install Dependencies
         run: |
-          # 1. 安装系统依赖（CMake、Python3、libffi等）
-          sudo apt-get update && sudo apt-get install -y \
+          sudo apt-get update
+          sudo apt-get install -y \
             cmake \
             python3 \
             python3-pip \
-            python3-setuptools \
-            python3-wheel \
-            libffi-dev \
             gcc-arm-none-eabi \
-            binutils-arm-none-eabi \
-            gdb-arm-none-eabi
-
-          # 2. 安装MicroPython编译所需的Python库（如pyelftools）
+            libnewlib-arm-none-eabi \
+            libstdc++-arm-none-eabi-newlib
           pip3 install --upgrade pip
-          pip3 install -r ports/rp2/requirements.txt  # RP2端口的专属依赖
+          pip3 install pyelftools
 
-      # 步骤3：指定LVGL版本为8.3（关键！通过子模块切换版本）
-      - name: Set LVGL version to 8.3
+      # 现在可以正常进入LVGL目录了
+      - name: Set LVGL to 8.3
         run: |
-          # 进入LVGL子模块目录（lv_micropython的LVGL源码在lib/lv_bindings/lvgl）
           cd lib/lv_bindings/lvgl
-          # 查看LVGL所有标签（确认8.3版本标签，官方标签通常为v8.3.0、v8.3.9等）
-          git tag | grep -E '^v8\.3\.'
-          # 切换到LVGL 8.3的最新稳定版（此处以v8.3.9为例，可替换为实际需要的8.3版本）
-          git checkout v8.3.9
-          # 确认当前LVGL版本
-          echo "Current LVGL version: $(git describe --tags)"
+          git checkout v8.3.9  # 切换到8.3版本
 
-      # 步骤4：编译RP2固件（使用RP2端口的Makefile，指定板型和配置）
-      - name: Build RP2 firmware with LVGL 8.3
+      - name: Build RP2 Firmware
         run: |
-          # 进入RP2端口目录（所有RP2编译逻辑在此目录）
           cd ports/rp2
-          # 执行编译：
-          # - BOARD：指定板型（rp2040是通用板型，也可指定具体板如pico、pico_w）
-          # - USER_C_MODULES：指定LVGL绑定模块（必须，否则固件不含LVGL）
-          # - LVGL_CONFIG_FILE：自定义LVGL配置（可选，默认使用lib/lv_bindings/lvgl/lv_conf.h）
-          make -j$(nproc) \
-            BOARD=rp2040 \
+          make -j$(nproc) BOARD=pico \
             USER_C_MODULES=../../lib/lv_bindings.cmake \
-            LVGL_CONFIG_FILE=../../lib/lv_bindings/lvgl/lv_conf.h \
-            clean all  # 先清理旧编译产物，再全量编译
+            LVGL_CONFIG_FILE=../../lib/lv_bindings/lvgl/lv_conf.h
 
-          # 编译完成后，固件文件在build-<BOARD>/目录下，格式为firmware.uf2
-          # 查看编译产物路径（确认文件存在）
-          ls -lh build-${BOARD}/firmware.uf2
-
-      # 步骤5：上传编译好的UF2固件（作为GitHub Actions的产物，方便下载）
-      - name: Upload RP2 LVGL 8.3 Firmware
+      - name: Upload Firmware
         uses: actions/upload-artifact@v4
         with:
-          name: rp2-lvgl83-firmware  # 产物名称（下载时显示）
-          path: ports/rp2/build-rp2040/firmware.uf2  # 固件路径（与步骤4的BOARD对应）
-          retention-days: 30  # 产物保留30天（可按需调整）
+          name: rp2-lvgl83-firmware
+          path: ports/rp2/build-pico/firmware.uf2
+          retention-days: 30
